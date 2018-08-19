@@ -11,6 +11,8 @@
 
 #include <cstring>
 #include <type_traits>
+#include <memory>
+#include <atomic>
 
 namespace Napi {
 
@@ -3233,6 +3235,100 @@ inline int64_t MemoryManagement::AdjustExternalMemory(Env env, int64_t change_in
   napi_status status = napi_adjust_external_memory(env, change_in_bytes, &result);
   NAPI_THROW_IF_FAILED(env, status, 0);
   return result;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Async Function
+////////////////////////////////////////////////////////////////////////////////
+
+namespace details {
+  template<typename AsyncExecute, typename AsyncComplete,
+           typename R = typename std::result_of<AsyncExecute(std::function<bool()>)>::type>
+  struct async_holder_t {
+    napi_env env;
+    std::function<R(std::function<bool()>)> execute;
+    std::function<void(Env, R&)> complete;
+    R result;
+    napi_async_work work;
+    std::atomic_bool cancel;
+  };
+
+  template<typename AsyncExecute, typename AsyncComplete>
+  struct async_holder_wrapper_t {
+    std::shared_ptr<async_holder_t<AsyncExecute, AsyncComplete>> holder;
+  };
+
+  template<typename AsyncExecute, typename AsyncComplete>
+  void async_execute(napi_env env, void* data) {
+    auto&& wrapper = static_cast<async_holder_wrapper_t<AsyncExecute, AsyncComplete>*>(data);
+    auto& holder = wrapper->holder;
+
+    holder->result = holder->execute([holder]() { return (bool)holder->cancel; });
+  }
+
+  template<typename AsyncExecute, typename AsyncComplete>
+  void async_complete(napi_env env, napi_status status, void* data) {
+    auto&& wrapper = static_cast<async_holder_wrapper_t<AsyncExecute, AsyncComplete>*>(data);
+    auto& holder = wrapper->holder;
+
+    if (status != napi_cancelled && !holder->cancel) {
+      holder->complete(env, holder->result);
+    }
+
+    if (wrapper->holder->work) {
+      napi_delete_async_work(holder->env, holder->work);
+      holder->work = nullptr;
+    }
+
+    delete wrapper;
+  }
+
+} // namespace details
+
+template<typename AsyncExecute, typename AsyncComplete>
+std::function<void()> Async(Env env,
+                            AsyncExecute&& execute,
+                            AsyncComplete&& complete) {
+  return Async(env, String::New(env, "generic"), std::forward<AsyncExecute>(execute),
+               std::forward<AsyncComplete>(complete));
+}
+
+template<typename AsyncExecute, typename AsyncComplete>
+std::function<void()> Async(Env env,
+                            Value resource_name,
+                            AsyncExecute&& execute,
+                            AsyncComplete&& complete) {
+  return Async(env, Object::New(env), resource_name, std::forward<AsyncExecute>(execute),
+               std::forward<AsyncComplete>(complete));
+}
+
+template<typename AsyncExecute, typename AsyncComplete>
+std::function<void()> Async(Env env,
+                            Value resource,
+                            Value resource_name,
+                            AsyncExecute&& execute,
+                            AsyncComplete&& complete) {
+  auto&& holder = std::make_shared<details::async_holder_t<AsyncExecute, AsyncComplete>>();
+  holder->env = env;
+  holder->execute = std::forward<AsyncExecute>(execute);
+  holder->complete = std::forward<AsyncComplete>(complete);
+  holder->cancel = false;
+  auto&& wrapper = new details::async_holder_wrapper_t<AsyncExecute, AsyncComplete>{holder};
+
+  napi_status status;
+  status = napi_create_async_work(env, resource, resource_name,
+                                  details::async_execute<AsyncExecute, AsyncComplete>,
+                                  details::async_complete<AsyncExecute, AsyncComplete>,
+                                  wrapper, &holder->work);
+  NAPI_THROW_IF_FAILED(env, status, {});
+
+  status = napi_queue_async_work(env, holder->work);
+  NAPI_THROW_IF_FAILED(env, status, {});
+  
+  return [holder]() {
+    // napi_cancel_async_work does not make sense as we immediately enqueue work
+    holder->cancel = true;
+  };
 }
 
 // These macros shouldn't be useful in user code.

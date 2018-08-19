@@ -9,6 +9,7 @@ process.config.target_defaults.default_configuration =
 // explicit declaration as follows.
 let testModules = [
   'arraybuffer',
+  'async',
   'asyncworker',
   'basic_types/number',
   'basic_types/value',

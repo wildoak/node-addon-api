@@ -1557,6 +1557,25 @@ namespace Napi {
       static int64_t AdjustExternalMemory(Env env, int64_t change_in_bytes);
   };
 
+  // Async Function
+  template<typename AsyncExecute, typename AsyncComplete>
+  std::function<void()> Async(Env env,
+                              AsyncExecute&& execute,
+                              AsyncComplete&& complete);
+
+  template<typename AsyncExecute, typename AsyncComplete>
+  std::function<void()> Async(Env env,
+                              Value resource_name,
+                              AsyncExecute&& execute,
+                              AsyncComplete&& complete);
+
+  template<typename AsyncExecute, typename AsyncComplete>
+  std::function<void()> Async(Env env,
+                              Value resource,
+                              Value resource_name,
+                              AsyncExecute&& execute,
+                              AsyncComplete&& complete);
+
 } // namespace Napi
 
 // Inline implementations of all the above class methods are included here.
