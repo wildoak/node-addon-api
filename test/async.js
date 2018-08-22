@@ -31,9 +31,17 @@ function test(binding) {
   // async cancel
   {
     const before = Date.now();
-    const promise = binding.async.sleepAndReturnAsync(200)
-    promise.then(common.mustNotCall());
+    const promise = binding.async.sleepAndReturnAsync(400)
+    promise.then(common.mustCall(result => {
+      // this is correct, if you only run this part with no other tests
+      // tests are not running in serial, so it will take a few seconds until main loop events are processed
+      // assert.ok(Date.now() - before < 100);
+
+      assert.strictEqual(result, 'cancelled');
+    }));
+
     promise.cancel();
+
     assert.ok(Date.now() - before < 200);
   }
 }

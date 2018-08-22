@@ -27,10 +27,16 @@ Value SleepAndReturnAsync(const CallbackInfo& info) {
   auto&& promise = deferred.Promise();
 
   auto&& cancel = Async(info.Env(), [millis](auto cancelled) -> std::string {
-    sleepMillis(millis);
+    int remaining_millis = millis;
+    const int MAX_SLEEP_MILLIS = 10;
 
-    if (cancelled()) {
-      return "cancelled";
+    while (remaining_millis > 0) {
+      if (cancelled()) {
+        return "cancelled";
+      }
+
+      sleepMillis(remaining_millis >= MAX_SLEEP_MILLIS ? MAX_SLEEP_MILLIS : remaining_millis);
+      remaining_millis = std::max(0, remaining_millis - MAX_SLEEP_MILLIS);
     }
 
     return "test";

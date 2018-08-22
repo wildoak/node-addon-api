@@ -3245,7 +3245,6 @@ namespace details {
   template<typename AsyncExecute, typename AsyncComplete,
            typename R = typename std::result_of<AsyncExecute(std::function<bool()>)>::type>
   struct async_holder_t {
-    napi_env env;
     std::function<R(std::function<bool()>)> execute;
     std::function<void(Env, R&)> complete;
     R result;
@@ -3271,12 +3270,15 @@ namespace details {
     auto&& wrapper = static_cast<async_holder_wrapper_t<AsyncExecute, AsyncComplete>*>(data);
     auto& holder = wrapper->holder;
 
-    if (status != napi_cancelled && !holder->cancel) {
+    // 1. should not be possible to be cancelled in NAPI
+    // 2. if cancelled via cancel function, complete function should also be invoked
+    // 3. result should hold information about cancellation, like pointers are nullptr then
+    if (status != napi_cancelled) {
       holder->complete(env, holder->result);
     }
 
-    if (wrapper->holder->work) {
-      napi_delete_async_work(holder->env, holder->work);
+    if (holder->work) {
+      napi_delete_async_work(env, holder->work);
       holder->work = nullptr;
     }
 
@@ -3309,21 +3311,34 @@ std::function<void()> Async(Env env,
                             AsyncExecute&& execute,
                             AsyncComplete&& complete) {
   auto&& holder = std::make_shared<details::async_holder_t<AsyncExecute, AsyncComplete>>();
-  holder->env = env;
   holder->execute = std::forward<AsyncExecute>(execute);
   holder->complete = std::forward<AsyncComplete>(complete);
   holder->cancel = false;
-  auto&& wrapper = new details::async_holder_wrapper_t<AsyncExecute, AsyncComplete>{holder};
+  auto&& wrapper_holder = std::make_unique<details::async_holder_wrapper_t<AsyncExecute, AsyncComplete>>();
+  wrapper_holder->holder = holder;
 
   napi_status status;
   status = napi_create_async_work(env, resource, resource_name,
                                   details::async_execute<AsyncExecute, AsyncComplete>,
                                   details::async_complete<AsyncExecute, AsyncComplete>,
-                                  wrapper, &holder->work);
+                                  wrapper_holder.get(), // before Async returns pointer is released
+                                  &holder->work);
   NAPI_THROW_IF_FAILED(env, status, {});
+
+  
+  std::function<void(napi_async_work*)> work_deleter = [env](napi_async_work* work) {
+    napi_delete_async_work(env, *work);
+  };
+
+  std::unique_ptr<napi_async_work, std::function<void(napi_async_work*)>> work_holder(&holder->work,
+                                                                                      std::move(work_deleter));
 
   status = napi_queue_async_work(env, holder->work);
   NAPI_THROW_IF_FAILED(env, status, {});
+
+  // async work created and queued, release ownership to callbacks
+  wrapper_holder.release();
+  work_holder.release();
   
   return [holder]() {
     // napi_cancel_async_work does not make sense as we immediately enqueue work
