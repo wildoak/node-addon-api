@@ -2354,6 +2354,48 @@ inline Object FunctionReference::New(const std::vector<napi_value>& args) const 
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Holder class
+////////////////////////////////////////////////////////////////////////////////
+
+template<typename T>
+inline Holder<T>::Holder() {
+}
+
+template<typename T>
+inline Holder<T>::Holder(const T& value): _reference(Napi::Persistent(value)) {
+}
+
+template<typename T>
+inline T Holder<T>::Value() const {
+  return _reference.Value();
+}
+
+template<typename T>
+inline Reference<T> Holder<T>::Release() {
+  return std::move(_reference);
+}
+
+template<typename T>
+inline void Holder<T>::Reset(Reference<T>&& other) {
+  _reference = std::move(other);
+}
+
+template<typename T>
+inline bool Holder<T>::operator!() const {
+  return _reference.IsEmpty();
+}
+
+template <typename T>
+inline HolderWrapper<T> Hold(const T& value) {
+  return std::make_shared<Holder<T>>(value);
+}
+
+template <typename T>
+inline HolderWrapper<T> Hold() {
+  return std::make_shared<Holder<T>>();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // CallbackInfo class
 ////////////////////////////////////////////////////////////////////////////////
 

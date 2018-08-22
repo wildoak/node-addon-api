@@ -20,6 +20,7 @@ let testModules = [
   'external',
   'function',
   'handlescope',
+  'holder',
   'memory_management',
   'name',
   'object/delete_property',

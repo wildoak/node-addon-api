@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <string>
 #include <vector>
+#include <memory>
 
 // VS2015 RTM has bugs with constexpr, so require min of VS2015 Update 3 (known good version)
 #if !defined(_MSC_VER) || _MSC_FULL_VER >= 190024210
@@ -1052,6 +1053,25 @@ namespace Napi {
   template <typename T> Reference<T> Persistent(T value);
   ObjectReference Persistent(Object value);
   FunctionReference Persistent(Function value);
+
+  template<typename T>
+  class Holder {
+  public:
+    Holder();
+    Holder(const T& value);
+
+    T Value() const;
+    Reference<T> Release();
+    void Reset(Reference<T>&& other = Reference<T>());
+    bool operator!() const;
+
+  private:
+    Reference<T> _reference;
+  };
+
+  template <typename T> using HolderWrapper = std::shared_ptr<Holder<T>>;
+  template <typename T> HolderWrapper<T> Hold(const T& value);
+  template <typename T = Value> HolderWrapper<T> Hold();
 
   /// A persistent reference to a JavaScript error object. Use of this class depends somewhat
   /// on whether C++ exceptions are enabled at compile time.
